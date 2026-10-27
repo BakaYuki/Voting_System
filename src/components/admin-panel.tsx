@@ -1,0 +1,46 @@
+"use client";
+
+import { useState } from "react";
+
+type Category = { id: string; name: string };
+type Project = { id: string; name: string; description: string; image_url: string | null; vote_count: number };
+
+export function AdminPanel({ categories, projects, isOpen, totalVotes }: { categories: Category[]; projects: Project[]; isOpen: boolean; totalVotes: number }) {
+  const [votingOpen, setVotingOpen] = useState(isOpen);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
+
+  async function update(url: string, method: string, body: unknown) {
+    setSaving(true); setMessage("");
+    try {
+      const response = await fetch(url, { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "Unable to save changes.");
+      setMessage("Saved successfully.");
+      return data;
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to save changes.");
+      return null;
+    } finally { setSaving(false); }
+  }
+
+  async function addProject(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const result = await update("/api/admin/projects", "POST", Object.fromEntries(form));
+    if (result) window.location.reload();
+  }
+
+  async function toggleVoting() {
+    const result = await update("/api/admin/settings", "PATCH", { isOpen: !votingOpen });
+    if (result) setVotingOpen(result.isOpen);
+  }
+
+  return <div className="admin-layout">
+    <section className="admin-summary"><div><p className="eyebrow">Voting control</p><h2>{votingOpen ? "Voting is open" : "Voting is closed"}</h2><p>{votingOpen ? "Visitors can submit votes." : "New votes are blocked."}</p></div><button className={`button ${votingOpen ? "button-secondary" : "button-primary"}`} onClick={toggleVoting} disabled={saving}>{votingOpen ? "Close voting" : "Open voting"}</button></section>
+    <section className="admin-stats"><div className="stat-card"><strong>{totalVotes}</strong><span>Total votes received</span></div><div className="stat-card"><strong>{projects.length}</strong><span>Projects</span></div><div className="stat-card"><strong>{categories.length}</strong><span>Categories</span></div></section>
+    <section className="admin-section"><p className="eyebrow">Project management</p><h2>Add a project</h2><form className="admin-form" onSubmit={addProject}><label>Project name<input name="name" required maxLength={120} /></label><label>Category<select name="categoryId" required defaultValue={categories[0]?.id}>{categories.map((category) => <option value={category.id} key={category.id}>{category.name}</option>)}</select></label><label>Image URL <span className="muted">(optional)</span><input name="imageUrl" type="url" /></label><label>Description<textarea name="description" rows={4} required maxLength={2000} /></label><button className="button button-primary" disabled={saving}>{saving ? "Saving…" : "Add project"}</button></form></section>
+    <section className="admin-section"><p className="eyebrow">Results overview</p><h2>Project vote totals</h2><div className="admin-projects">{projects.map((project) => <article className="admin-project" key={project.id}>{project.image_url && <img src={project.image_url} alt="" />}<div><h3>{project.name}</h3><p>{project.description}</p><strong>{project.vote_count} votes</strong></div></article>)}</div></section>
+    {message && <p className="admin-message" role="status">{message}</p>}
+  </div>;
+}

@@ -1,3 +1,10 @@
-export default function AdminLoginPage() {
-  return <main className="shell section" style={{ maxWidth: 560 }}><p className="eyebrow">Restricted area</p><h1>Admin sign in</h1><p className="lede">Sign in with the administrator account configured in Supabase.</p><form className="category-card" style={{ display: "grid", gap: 16, marginTop: 28 }}><label>Email<input name="email" type="email" required style={{ display: "block", width: "100%", marginTop: 6, padding: 12, border: "1px solid var(--line)", borderRadius: 6 }} /></label><label>Password<input name="password" type="password" required style={{ display: "block", width: "100%", marginTop: 6, padding: 12, border: "1px solid var(--line)", borderRadius: 6 }} /></label><button className="button button-primary" type="submit">Sign in</button></form></main>;
+import { AdminLoginForm } from "@/components/admin-login-form";
+import { redirect } from "next/navigation";
+
+export default async function AdminLoginPage({ searchParams }: { searchParams: Promise<{ email?: string; password?: string }> }) {
+  const params = await searchParams;
+  if (params.email || params.password) redirect("/admin/login");
+  return <main className="shell section" style={{ maxWidth: 560 }}><p className="eyebrow">Restricted area</p><h1>Admin sign in</h1><p className="lede">Sign in with the administrator account configured in Supabase.</p><AdminLoginForm /></main>;
 }
+
+export const instant = false;
