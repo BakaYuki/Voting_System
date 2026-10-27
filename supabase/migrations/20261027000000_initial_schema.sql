@@ -6,6 +6,16 @@ create table public.projects (id uuid primary key default gen_random_uuid(), cat
 create table public.voters (id uuid primary key default gen_random_uuid(), token_hash text not null unique, created_at timestamptz not null default now());
 create table public.voting_settings (id boolean primary key default true, is_open boolean not null default false, opened_at timestamptz, closed_at timestamptz, updated_at timestamptz not null default now(), updated_by uuid references auth.users(id));
 insert into public.voting_settings (id) values (true) on conflict do nothing;
+insert into public.categories (id, name, description, is_active) values
+('00000000-0000-0000-0000-000000000010', 'Community', 'Projects that make our community stronger.', true),
+('00000000-0000-0000-0000-000000000011', 'Innovation', 'Fresh ideas and practical solutions.', true),
+('00000000-0000-0000-0000-000000000012', 'Sustainability', 'Ideas that help protect our shared future.', true)
+on conflict (id) do nothing;
+insert into public.projects (id, category_id, name, description, is_active) values
+('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000010', 'Neighbourhood Tool Library', 'A shared place to borrow tools, learn practical skills, and help neighbours.', true),
+('00000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000010', 'Welcoming Streets', 'Small improvements that make walking and meeting friends safer and easier.', true),
+('00000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000010', 'Community Skills Exchange', 'A regular event where residents share knowledge, time, and encouragement.', true)
+on conflict (id) do nothing;
 create table public.votes (id uuid primary key default gen_random_uuid(), voter_id uuid not null references public.voters(id) on delete restrict, category_id uuid not null references public.categories(id) on delete restrict, project_id uuid not null references public.projects(id) on delete restrict, created_at timestamptz not null default now());
 create index votes_voter_category_idx on public.votes(voter_id, category_id);
 create index votes_project_idx on public.votes(project_id);
@@ -28,7 +38,7 @@ create policy "public reads active projects" on public.projects for select using
 create policy "admins manage categories" on public.categories for all using (exists (select 1 from public.admin_users a where a.user_id = auth.uid())) with check (exists (select 1 from public.admin_users a where a.user_id = auth.uid()));
 create policy "admins manage projects" on public.projects for all using (exists (select 1 from public.admin_users a where a.user_id = auth.uid())) with check (exists (select 1 from public.admin_users a where a.user_id = auth.uid()));
 create policy "admins manage settings" on public.voting_settings for all using (exists (select 1 from public.admin_users a where a.user_id = auth.uid())) with check (exists (select 1 from public.admin_users a where a.user_id = auth.uid()));
-create policy "public reads results" on public.votes for select using (true);
+revoke all on public.votes from anon, authenticated;
 
 create or replace function public.submit_vote(p_token_hash text, p_category_id uuid, p_project_id uuid)
 returns json language plpgsql security definer set search_path = public as $$

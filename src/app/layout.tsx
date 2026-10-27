@@ -8,5 +8,5 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="en"><body><header className="site-header"><div className="shell nav"><Link className="brand" href="/">Project Awards</Link><nav aria-label="Main navigation"><Link href="/categories">Vote</Link><Link href="/results">Results</Link><Link href="/admin/login">Admin</Link></nav></div></header>{children}<footer className="site-footer"><div className="shell"><span>Project Awards</span><span>Anonymous voting · No registration required</span></div></footer></body></html>;
+  return <html lang="en"><body><header className="site-header"><div className="shell nav"><Link className="brand" href="/">Project Awards</Link><nav aria-label="Main navigation"><Link href="/">Vote</Link><Link href="/results">Results</Link></nav></div></header>{children}<footer className="site-footer"><div className="shell"><span>Project Awards</span><span>Anonymous voting · No registration required</span></div></footer></body></html>;
 }
