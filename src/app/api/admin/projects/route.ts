@@ -4,7 +4,7 @@ import { z } from "zod";
 import { getAdminUser } from "@/lib/admin-auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 
-const schema = z.object({ name: z.string().trim().min(1).max(120), categoryId: z.string().uuid(), description: z.string().trim().min(1).max(2000) });
+const schema = z.object({ name: z.string().trim().min(1).max(120), categoryId: z.string().uuid(), schoolName: z.string().trim().min(1).max(200).optional(), studentName: z.string().trim().min(1).max(200).optional(), description: z.string().trim().min(1).max(2000) });
 const imageTypes = new Map([["image/jpeg", "jpg"], ["image/png", "png"], ["image/webp", "webp"]]);
 
 export async function POST(request: Request) {
@@ -23,7 +23,7 @@ export async function POST(request: Request) {
       if (uploadError) throw uploadError;
       imageUrl = db.storage.from("project-images").getPublicUrl(path).data.publicUrl;
     }
-    const { error } = await getSupabaseAdmin().from("projects").insert({ name: input.name, category_id: input.categoryId, description: input.description, image_url: imageUrl, is_active: true });
+    const { error } = await getSupabaseAdmin().from("projects").insert({ name: input.name, category_id: input.categoryId, school_name: input.schoolName ?? "", student_name: input.studentName ?? "", description: input.description, image_url: imageUrl, is_active: true });
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
     return NextResponse.json({ ok: true }, { status: 201 });
   } catch (error) {

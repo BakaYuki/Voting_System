@@ -16,7 +16,7 @@ async function AdminContent() {
   const db = getSupabaseAdmin();
   const [categoriesResult, projectsResult, votesResult, settingsResult] = await Promise.all([
     db.from("categories").select("id,name").order("name"),
-    db.from("project_results").select("id,name,description,image_url,vote_count").order("name"),
+    db.from("project_results").select("id,name,description,image_url,category_id,school_name,student_name,vote_count").order("name"),
     db.from("votes").select("id", { count: "exact", head: true }),
     db.from("voting_settings").select("is_open").eq("id", true).single(),
   ]);
