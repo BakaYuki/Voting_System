@@ -1,0 +1,47 @@
+create extension if not exists pgcrypto;
+
+create table public.admin_users (user_id uuid primary key references auth.users(id) on delete cascade, created_at timestamptz not null default now());
+create table public.categories (id uuid primary key default gen_random_uuid(), name text not null unique, description text not null default '', is_active boolean not null default false, created_at timestamptz not null default now(), updated_at timestamptz not null default now());
+create table public.projects (id uuid primary key default gen_random_uuid(), category_id uuid not null references public.categories(id) on delete restrict, name text not null, description text not null default '', image_url text, is_active boolean not null default false, created_at timestamptz not null default now(), updated_at timestamptz not null default now());
+create table public.voters (id uuid primary key default gen_random_uuid(), token_hash text not null unique, created_at timestamptz not null default now());
+create table public.voting_settings (id boolean primary key default true, is_open boolean not null default false, opened_at timestamptz, closed_at timestamptz, updated_at timestamptz not null default now(), updated_by uuid references auth.users(id));
+insert into public.voting_settings (id) values (true) on conflict do nothing;
+create table public.votes (id uuid primary key default gen_random_uuid(), voter_id uuid not null references public.voters(id) on delete restrict, category_id uuid not null references public.categories(id) on delete restrict, project_id uuid not null references public.projects(id) on delete restrict, created_at timestamptz not null default now());
+create index votes_voter_category_idx on public.votes(voter_id, category_id);
+create index votes_project_idx on public.votes(project_id);
+
+create or replace view public.project_results as
+select p.id, p.category_id, p.name, p.description, p.image_url, count(v.id)::int as vote_count,
+case when sum(count(v.id)) over (partition by p.category_id) = 0 then 0
+else round((count(v.id)::numeric / sum(count(v.id)) over (partition by p.category_id)) * 10, 4) end as score
+from public.projects p left join public.votes v on v.project_id = p.id
+group by p.id;
+
+alter table public.admin_users enable row level security;
+alter table public.categories enable row level security;
+alter table public.projects enable row level security;
+alter table public.voters enable row level security;
+alter table public.votes enable row level security;
+alter table public.voting_settings enable row level security;
+create policy "public reads active categories" on public.categories for select using (is_active);
+create policy "public reads active projects" on public.projects for select using (is_active and exists (select 1 from public.categories c where c.id = category_id and c.is_active));
+create policy "admins manage categories" on public.categories for all using (exists (select 1 from public.admin_users a where a.user_id = auth.uid())) with check (exists (select 1 from public.admin_users a where a.user_id = auth.uid()));
+create policy "admins manage projects" on public.projects for all using (exists (select 1 from public.admin_users a where a.user_id = auth.uid())) with check (exists (select 1 from public.admin_users a where a.user_id = auth.uid()));
+create policy "admins manage settings" on public.voting_settings for all using (exists (select 1 from public.admin_users a where a.user_id = auth.uid())) with check (exists (select 1 from public.admin_users a where a.user_id = auth.uid()));
+create policy "public reads results" on public.votes for select using (true);
+
+create or replace function public.submit_vote(p_token_hash text, p_category_id uuid, p_project_id uuid)
+returns json language plpgsql security definer set search_path = public as $$
+declare v_voter uuid; v_used integer; v_open boolean;
+begin
+  select is_open into v_open from voting_settings where id = true for update;
+  if not coalesce(v_open, false) then raise exception 'Voting is closed'; end if;
+  if not exists (select 1 from projects p join categories c on c.id=p.category_id where p.id=p_project_id and p.category_id=p_category_id and p.is_active and c.is_active) then raise exception 'Invalid project or category'; end if;
+  insert into voters(token_hash) values (p_token_hash) on conflict (token_hash) do update set token_hash=excluded.token_hash returning id into v_voter;
+  select count(*) into v_used from votes where voter_id=v_voter and category_id=p_category_id;
+  if v_used >= 3 then raise exception 'Vote limit reached for this category'; end if;
+  insert into votes(voter_id, category_id, project_id) values (v_voter, p_category_id, p_project_id);
+  return json_build_object('remaining_votes', 2-v_used);
+end; $$;
+revoke all on function public.submit_vote(text, uuid, uuid) from public;
+grant execute on function public.submit_vote(text, uuid, uuid) to service_role;
