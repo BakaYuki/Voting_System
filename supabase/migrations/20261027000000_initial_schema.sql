@@ -19,11 +19,6 @@ insert into public.categories (id, name, description, is_active) values
 ('00000000-0000-0000-0000-000000000011', 'Innovation', 'Fresh ideas and practical solutions.', true),
 ('00000000-0000-0000-0000-000000000012', 'Sustainability', 'Ideas that help protect our shared future.', true)
 on conflict (id) do nothing;
-insert into public.projects (id, category_id, name, description, is_active) values
-('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000010', 'Neighbourhood Tool Library', 'A shared place to borrow tools, learn practical skills, and help neighbours.', true),
-('00000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000010', 'Welcoming Streets', 'Small improvements that make walking and meeting friends safer and easier.', true),
-('00000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000010', 'Community Skills Exchange', 'A regular event where residents share knowledge, time, and encouragement.', true)
-on conflict (id) do nothing;
 create table public.votes (id uuid primary key default gen_random_uuid(), voter_id uuid not null references public.voter_codes(id) on delete restrict, category_id uuid not null references public.categories(id) on delete restrict, project_id uuid not null references public.projects(id) on delete restrict, created_at timestamptz not null default now());
 create index votes_voter_category_idx on public.votes(voter_id, category_id);
 create index votes_project_idx on public.votes(project_id);
