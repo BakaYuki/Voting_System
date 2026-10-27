@@ -23,16 +23,18 @@ The initial database state has voting closed. An administrator must open it from
 
 ### Registering voter codes
 
-The first page load asks for a four-digit code. Register codes in Supabase SQL Editor; store the SHA-256 hash, not the code itself:
+The first page load asks for a four-digit code. Register codes in Supabase SQL Editor:
 
 ```sql
-insert into public.voter_codes (code_hash, display_name)
+insert into public.voter_codes (code, display_name)
 values
-  (encode(digest('1234', 'sha256'), 'hex'), 'Example Voter'),
-  (encode(digest('5678', 'sha256'), 'hex'), 'Another Voter');
+  ('1234', 'Example Voter'),
+  ('5678', 'Another Voter');
 ```
 
 Replace the example codes and names with the event list. Visitors with an unregistered code cannot create a voter session or submit votes. The code is reusable for the registered person and is linked to their stored name for vote tracking.
+
+If a code has a `display_name`, the voter name is filled in automatically after the code is verified. For codes without a display name, the voter is asked to enter a name.
 
 To disable a code without deleting its history:
 

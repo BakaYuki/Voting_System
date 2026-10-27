@@ -18,13 +18,14 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const { code, name } = input.parse(await request.json());
-    const { data: voter, error } = await getSupabaseAdmin().from("voter_codes").select("id").eq("code", code).eq("is_active", true).maybeSingle();
+    const { data: voter, error } = await getSupabaseAdmin().from("voter_codes").select("id, display_name").eq("code", code).eq("is_active", true).maybeSingle();
     if (error || !voter) return NextResponse.json({ error: "That code is not registered. Please ask the event team for help." }, { status: 401 });
-    if (!name) return NextResponse.json({ requiresName: true });
+    const voterName = voter.display_name?.trim() || name;
+    if (!voterName) return NextResponse.json({ requiresName: true });
     const token = randomBytes(32).toString("base64url");
-    const { error: sessionError } = await getSupabaseAdmin().from("voter_sessions").insert({ voter_code_id: voter.id, voter_name: name, token_hash: hash(token) });
+    const { error: sessionError } = await getSupabaseAdmin().from("voter_sessions").insert({ voter_code_id: voter.id, voter_name: voterName, token_hash: hash(token) });
     if (sessionError) throw sessionError;
-    const response = NextResponse.json({ name });
+    const response = NextResponse.json({ name: voterName });
     response.cookies.set(cookieName, token, { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", maxAge: 60 * 60 * 24 * 180, path: "/" });
     return response;
   } catch (error) {
