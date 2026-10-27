@@ -5,13 +5,12 @@ create table public.categories (id uuid primary key default gen_random_uuid(), n
 create table public.projects (id uuid primary key default gen_random_uuid(), category_id uuid not null references public.categories(id) on delete restrict, name text not null, description text not null default '', image_url text, is_active boolean not null default false, created_at timestamptz not null default now(), updated_at timestamptz not null default now());
 create table public.voter_codes (
   id uuid primary key default gen_random_uuid(),
-  code_hash text not null unique,
-  display_name text not null,
+  code text not null unique check (code ~ '^[0-9]{4}$'),
   is_active boolean not null default true,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
-create table public.voter_sessions (id uuid primary key default gen_random_uuid(), voter_code_id uuid not null references public.voter_codes(id) on delete cascade, token_hash text not null unique, created_at timestamptz not null default now(), expires_at timestamptz not null default (now() + interval '180 days'));
+create table public.voter_sessions (id uuid primary key default gen_random_uuid(), voter_code_id uuid not null references public.voter_codes(id) on delete cascade, voter_name text not null, token_hash text not null unique, created_at timestamptz not null default now(), expires_at timestamptz not null default (now() + interval '180 days'));
 create table public.voting_settings (id boolean primary key default true, is_open boolean not null default false, opened_at timestamptz, closed_at timestamptz, updated_at timestamptz not null default now(), updated_by uuid references auth.users(id));
 insert into public.voting_settings (id) values (true) on conflict do nothing;
 insert into public.categories (id, name, description, is_active) values
@@ -45,9 +44,9 @@ create policy "admins manage settings" on public.voting_settings for all using (
 revoke all on public.votes from anon, authenticated;
 revoke all on public.voter_codes, public.voter_sessions from anon, authenticated;
 
-create or replace function public.find_voter_by_code(p_code_hash text)
-returns table(id uuid, display_name text) language sql security definer set search_path = public as $$
-  select v.id, v.display_name from voter_codes v where v.code_hash = p_code_hash and v.is_active limit 1
+create or replace function public.find_voter_by_code(p_code text)
+returns table(id uuid) language sql security definer set search_path = public as $$
+  select v.id from voter_codes v where v.code = p_code and v.is_active limit 1
 $$;
 revoke all on function public.find_voter_by_code(text) from public;
 grant execute on function public.find_voter_by_code(text) to service_role;
