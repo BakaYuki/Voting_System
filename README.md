@@ -19,6 +19,27 @@ An accessible Next.js App Router voting system backed by Supabase PostgreSQL.
 
 The initial database state has voting closed. An administrator must open it from the eventual protected settings action before public voting can begin. Never expose `SUPABASE_SERVICE_ROLE_KEY` to client code.
 
+### Registering voter codes
+
+The first page load asks for a four-digit code. Register codes in Supabase SQL Editor; store the SHA-256 hash, not the code itself:
+
+```sql
+insert into public.voter_codes (code_hash, display_name)
+values
+  (encode(digest('1234', 'sha256'), 'hex'), 'Example Voter'),
+  (encode(digest('5678', 'sha256'), 'hex'), 'Another Voter');
+```
+
+Replace the example codes and names with the event list. Visitors with an unregistered code cannot create a voter session or submit votes. The code is reusable for the registered person and is linked to their stored name for vote tracking.
+
+To disable a code without deleting its history:
+
+```sql
+update public.voter_codes
+set is_active = false, updated_at = now()
+where display_name = 'Example Voter';
+```
+
 ## Security notes
 
 The vote API never accepts a voter ID from the request body. The database function locks the global settings row before checking status and recording a vote, so closing voting and vote submissions coordinate transactionally. RLS prevents public content/settings writes; privileged server operations use the service-role client.

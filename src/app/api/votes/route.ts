@@ -1,27 +1,26 @@
-import { createHash, randomBytes } from "node:crypto";
+import { createHash } from "node:crypto";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getSupabaseAdmin } from "@/lib/supabase";
 
 const input = z.object({ categoryId: z.string().uuid(), projectId: z.string().uuid() });
-const cookieName = "anonymous_voter";
+const cookieName = "voter_session";
 
 export async function POST(request: Request) {
   try {
     const body = input.parse(await request.json());
     const cookieStore = await cookies();
-    let token = cookieStore.get(cookieName)?.value;
-    if (!token || token.length < 32) token = randomBytes(32).toString("base64url");
+    const token = cookieStore.get(cookieName)?.value;
+    if (!token) return NextResponse.json({ error: "Enter your registered voter code first." }, { status: 401 });
     const tokenHash = createHash("sha256").update(token).digest("hex");
     const { data, error } = await getSupabaseAdmin().rpc("submit_vote", {
-      p_token_hash: tokenHash,
+      p_session_hash: tokenHash,
       p_category_id: body.categoryId,
       p_project_id: body.projectId,
     });
     if (error) return NextResponse.json({ error: error.message }, { status: 409 });
     const response = NextResponse.json(data);
-    response.cookies.set(cookieName, token, { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", maxAge: 60 * 60 * 24 * 180, path: "/" });
     return response;
   } catch (error) {
     if (error instanceof z.ZodError) return NextResponse.json({ error: "Invalid vote details." }, { status: 400 });
