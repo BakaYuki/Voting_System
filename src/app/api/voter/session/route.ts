@@ -11,8 +11,13 @@ const hash = (value: string) => createHash("sha256").update(value).digest("hex")
 export async function GET() {
   const session = (await cookies()).get(cookieName)?.value;
   if (!session) return NextResponse.json({ verified: false });
-  const { data } = await getSupabaseAdmin().from("voter_sessions").select("voter_name").eq("token_hash", hash(session)).maybeSingle();
-  return NextResponse.json(data ? { verified: true, name: data.voter_name } : { verified: false });
+  const db = getSupabaseAdmin();
+  const { data } = await db.from("voter_sessions").select("voter_code_id,voter_name").eq("token_hash", hash(session)).maybeSingle();
+  if (!data) return NextResponse.json({ verified: false });
+  const { data: votes } = await db.from("votes").select("category_id").eq("voter_id", data.voter_code_id);
+  const voteCounts = new Map<string, number>();
+  votes?.forEach((vote) => voteCounts.set(vote.category_id, (voteCounts.get(vote.category_id) ?? 0) + 1));
+  return NextResponse.json({ verified: true, name: data.voter_name, remainingVotes: Object.fromEntries([...voteCounts].map(([categoryId, count]) => [categoryId, Math.max(0, 3 - count)])) });
 }
 
 export async function POST(request: Request) {
