@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 
-export function VoteButton({ categoryId, projectId, onVoteRecorded, disabled = false }: { categoryId: string; projectId: string; onVoteRecorded?: (remainingVotes: number) => void; disabled?: boolean }) {
-  const [state, setState] = useState<"idle" | "saving" | "done" | "error">("idle");
+export function VoteButton({ categoryId, projectId, onVoteRecorded, onVoteUndone, initialVoted = false, disabled = false }: { categoryId: string; projectId: string; onVoteRecorded?: (remainingVotes: number) => void; onVoteUndone?: (projectId: string) => void; initialVoted?: boolean; disabled?: boolean }) {
+  const [state, setState] = useState<"idle" | "saving" | "done" | "error">(initialVoted ? "done" : "idle");
   const [errorMessage, setErrorMessage] = useState("");
   async function submit() {
     setState("saving"); setErrorMessage("");
@@ -32,7 +32,8 @@ export function VoteButton({ categoryId, projectId, onVoteRecorded, disabled = f
       });
       const data = (await response.json()) as { error?: string; remaining_votes?: number };
       if (!response.ok) throw new Error(data.error ?? "Your vote could not be undone.");
-      if (typeof data.remaining_votes === "number") onVoteRecorded?.(3 - data.remaining_votes);
+      if (typeof data.remaining_votes === "number") onVoteRecorded?.(data.remaining_votes);
+      onVoteUndone?.(projectId);
       setState("idle");
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Your vote could not be undone.");

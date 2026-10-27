@@ -14,10 +14,19 @@ export async function GET() {
   const db = getSupabaseAdmin();
   const { data } = await db.from("voter_sessions").select("voter_code_id,voter_name").eq("token_hash", hash(session)).maybeSingle();
   if (!data) return NextResponse.json({ verified: false });
-  const { data: votes } = await db.from("votes").select("category_id").eq("voter_id", data.voter_code_id);
+  const { data: votes } = await db.from("votes").select("category_id,project_id").eq("voter_id", data.voter_code_id);
   const voteCounts = new Map<string, number>();
-  votes?.forEach((vote) => voteCounts.set(vote.category_id, (voteCounts.get(vote.category_id) ?? 0) + 1));
-  return NextResponse.json({ verified: true, name: data.voter_name, remainingVotes: Object.fromEntries([...voteCounts].map(([categoryId, count]) => [categoryId, Math.max(0, 3 - count)])) });
+  const votedProjects = new Map<string, string[]>();
+  votes?.forEach((vote) => {
+    voteCounts.set(vote.category_id, (voteCounts.get(vote.category_id) ?? 0) + 1);
+    votedProjects.set(vote.category_id, [...(votedProjects.get(vote.category_id) ?? []), vote.project_id]);
+  });
+  return NextResponse.json({
+    verified: true,
+    name: data.voter_name,
+    remainingVotes: Object.fromEntries([...voteCounts].map(([categoryId, count]) => [categoryId, Math.max(0, 3 - count)])),
+    votedProjects: Object.fromEntries(votedProjects),
+  });
 }
 
 export async function POST(request: Request) {

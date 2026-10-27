@@ -39,7 +39,7 @@ begin
   where voter_id = v_voter and category_id = p_category_id and project_id = p_project_id;
   get diagnostics v_deleted = row_count;
   if v_deleted = 0 then raise exception 'Vote not found'; end if;
-  return json_build_object('remaining_votes', (select count(*) from votes where voter_id = v_voter and category_id = p_category_id));
+  return json_build_object('remaining_votes', 3 - (select count(*) from votes where voter_id = v_voter and category_id = p_category_id));
 end; $$;
 
 revoke all on function public.undo_vote(text, uuid, uuid) from public;
