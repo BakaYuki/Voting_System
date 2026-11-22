@@ -1,1 +1,1 @@
-export { GET, POST, DELETE } from "../voter-codes/route";
+export { GET, POST, PATCH, DELETE } from "../voter-codes/route";
