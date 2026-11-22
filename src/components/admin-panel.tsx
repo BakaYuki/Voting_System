@@ -21,7 +21,7 @@ export function AdminPanel({ categories, projects, isOpen, totalVotes }: { categ
 
   useEffect(() => {
     let active = true;
-    fetch("/api/admin/voter-codes")
+    fetch("/api/admin/voter-codes", { credentials: "include" })
       .then((response) => response.json())
       .then((data: { codes?: VoterCode[] }) => { if (active) setVoterCodes(data.codes ?? []); })
       .catch(() => { if (active) setVoterCodes([]); })
@@ -32,7 +32,7 @@ export function AdminPanel({ categories, projects, isOpen, totalVotes }: { categ
   async function update(url: string, method: string, body: FormData | unknown) {
     setSaving(true); setMessage("");
     try {
-      const response = await fetch(url, body instanceof FormData ? { method, body } : { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+      const response = await fetch(url, body instanceof FormData ? { method, body, credentials: "include" } : { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body), credentials: "include" });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "Unable to save changes.");
       setMessage("Saved successfully.");
@@ -66,7 +66,7 @@ export function AdminPanel({ categories, projects, isOpen, totalVotes }: { categ
     event.preventDefault();
     setSaving(true); setMessage(""); setGeneratedCodes([]);
     try {
-      const response = await fetch("/api/admin/voter-codes", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ count: codeCount }) });
+      const response = await fetch("/api/admin/voter-codes", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ count: codeCount }), credentials: "include" });
       const data = (await response.json()) as { codes?: string[]; count?: number; error?: string };
       if (!response.ok) throw new Error(data.error ?? "Unable to generate voter codes.");
       setGeneratedCodes(data.codes ?? []);
@@ -81,16 +81,11 @@ export function AdminPanel({ categories, projects, isOpen, totalVotes }: { categ
 
   async function destroyAllVoterCodes() {
     if (!window.confirm("Destroy all voter access codes? This cannot be undone.")) return;
-    setSaving(true); setMessage("");
-    try {
-      const response = await fetch("/api/admin/voter-codes", { method: "DELETE" });
-      const data = (await response.json()) as { error?: string; deleted?: number; deactivated?: number };
-      if (!response.ok) throw new Error(data.error ?? "Unable to destroy voter codes.");
+    const result = await update("/api/admin/voter-codes", "DELETE", {});
+    if (result) {
       setVoterCodes([]); setGeneratedCodes([]);
-      setMessage(`Destroyed all voter access codes (${data.deleted ?? 0} deleted, ${data.deactivated ?? 0} deactivated).`);
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to destroy voter codes.");
-    } finally { setSaving(false); }
+      setMessage(`Destroyed all voter access codes (${result.deleted ?? 0} deleted, ${result.deactivated ?? 0} deactivated).`);
+    }
   }
 
   function copyGeneratedCodes() {
