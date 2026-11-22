@@ -23,7 +23,7 @@ The initial database state has voting closed. An administrator must open it from
 
 ### Registering voter codes
 
-The first page load asks for a four-digit code. Register codes in Supabase SQL Editor:
+The first page load asks for a four-digit code. An administrator can generate random 4-digit codes from the admin panel ("Generate 4-digit keys"), choosing how many to create and destroying them all at once when the event is finished. Codes can also be registered manually in Supabase SQL Editor:
 
 ```sql
 insert into public.voter_codes (code, display_name)
