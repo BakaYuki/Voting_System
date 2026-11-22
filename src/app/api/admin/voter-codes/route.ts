@@ -113,7 +113,7 @@ export async function PATCH(request: Request) {
   }
 }
 
-export async function DELETE() {
+export async function DELETE(request: Request) {
   const admin = await getAdminUser();
   if (!admin) return NextResponse.json({ error: "Admin authentication required." }, { status: 401 });
 
@@ -121,26 +121,60 @@ export async function DELETE() {
   const now = new Date().toISOString();
 
   try {
-    // Deactivate every key instead of deleting it, preserving vote history and voter names.
-    const { data: allCodes, error: codesError } = await db.from("voter_codes").select("id");
-    if (codesError) throw codesError;
+    const rawBody = await request.json().catch(() => ({}));
+    const selectedIds = Array.isArray(rawBody?.ids) ? rawBody.ids.filter((id: unknown) => typeof id === "string") : null;
 
-    const ids = (allCodes ?? []).map((code) => code.id);
-    if (ids.length > 0) {
+    // No selected ids means "deactivate all keys" (preserves vote history).
+    if (!selectedIds) {
+      const { data: allCodes, error: codesError } = await db.from("voter_codes").select("id");
+      if (codesError) throw codesError;
+
+      const ids = (allCodes ?? []).map((code) => code.id);
+      if (ids.length > 0) {
+        const { error: deactivateError } = await db
+          .from("voter_codes")
+          .update({ is_active: false, updated_at: now })
+          .in("id", ids);
+        if (deactivateError) throw deactivateError;
+      }
+
+      const { error: sessionsError } = await db.from("voter_sessions").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+      if (sessionsError) throw sessionsError;
+
+      return NextResponse.json({ ok: true, deleted: 0, deactivated: ids.length });
+    }
+
+    if (selectedIds.length === 0) {
+      return NextResponse.json({ error: "Select at least one voter code." }, { status: 400 });
+    }
+
+    const { data: votedRows, error: votedError } = await db.from("votes").select("voter_id");
+    if (votedError) throw votedError;
+    const votedIds = new Set((votedRows ?? []).map((row) => row.voter_id));
+
+    const usedIds = selectedIds.filter((id: string) => votedIds.has(id));
+    const unusedIds = selectedIds.filter((id: string) => !votedIds.has(id));
+
+    // Unused keys can be removed completely. Used keys are deactivated so vote data and names remain available.
+    if (unusedIds.length > 0) {
+      const { error: deleteError } = await db.from("voter_codes").delete().in("id", unusedIds);
+      if (deleteError) throw deleteError;
+    }
+
+    if (usedIds.length > 0) {
       const { error: deactivateError } = await db
         .from("voter_codes")
         .update({ is_active: false, updated_at: now })
-        .in("id", ids);
+        .in("id", usedIds);
       if (deactivateError) throw deactivateError;
     }
 
-    // Force every current voter session to log out.
-    const { error: sessionsError } = await db.from("voter_sessions").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+    const { error: sessionsError } = await db.from("voter_sessions").delete().in("voter_code_id", selectedIds);
     if (sessionsError) throw sessionsError;
 
-    return NextResponse.json({ ok: true, deleted: 0, deactivated: ids.length });
+    return NextResponse.json({ ok: true, deleted: unusedIds.length, deactivated: usedIds.length });
   } catch (error) {
-    console.error("Voter code deactivation failed", error);
-    return NextResponse.json({ error: "Unable to deactivate voter codes." }, { status: 500 });
+    console.error("Voter code deletion failed", error);
+    return NextResponse.json({ error: "Unable to delete voter codes." }, { status: 500 });
   }
 }
