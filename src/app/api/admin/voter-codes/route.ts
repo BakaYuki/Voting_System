@@ -77,7 +77,12 @@ export async function POST(request: Request) {
   }
 }
 
-export async function DELETE() {
+const bulkStatusSchema = z.object({
+  ids: z.array(z.string().uuid()).min(1),
+  isActive: z.boolean(),
+});
+
+export async function PATCH(request: Request) {
   const admin = await getAdminUser();
   if (!admin) return NextResponse.json({ error: "Admin authentication required." }, { status: 401 });
 
@@ -85,35 +90,91 @@ export async function DELETE() {
   const now = new Date().toISOString();
 
   try {
-    // Invalidate all active voter sessions so destroyed keys can no longer be used.
-    const { error: sessionsError } = await db.from("voter_sessions").delete().neq("id", "00000000-0000-0000-0000-000000000000");
-    if (sessionsError) throw sessionsError;
+    const { ids, isActive } = bulkStatusSchema.parse(await request.json());
+    const { error: updateError } = await db
+      .from("voter_codes")
+      .update({ is_active: isActive, updated_at: now })
+      .in("id", ids);
+    if (updateError) throw updateError;
+
+    // Deactivating a key immediately invalidates sessions created with it.
+    if (!isActive) {
+      const { error: sessionsError } = await db.from("voter_sessions").delete().in("voter_code_id", ids);
+      if (sessionsError) throw sessionsError;
+    }
+
+    return NextResponse.json({ ok: true, updated: ids.length, isActive });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return NextResponse.json({ error: "Select at least one valid voter code." }, { status: 400 });
+    }
+    console.error("Voter code status update failed", error);
+    return NextResponse.json({ error: "Unable to update voter codes." }, { status: 500 });
+  }
+}
+
+export async function DELETE(request: Request) {
+  const admin = await getAdminUser();
+  if (!admin) return NextResponse.json({ error: "Admin authentication required." }, { status: 401 });
+
+  const db = getSupabaseAdmin();
+  const now = new Date().toISOString();
+
+  try {
+    const rawBody = await request.json().catch(() => ({}));
+    const selectedIds = Array.isArray(rawBody?.ids) ? rawBody.ids.filter((id: unknown) => typeof id === "string") : null;
+
+    // No selected ids means "deactivate all keys" (preserves vote history).
+    if (!selectedIds) {
+      const { data: allCodes, error: codesError } = await db.from("voter_codes").select("id");
+      if (codesError) throw codesError;
+
+      const ids = (allCodes ?? []).map((code) => code.id);
+      if (ids.length > 0) {
+        const { error: deactivateError } = await db
+          .from("voter_codes")
+          .update({ is_active: false, updated_at: now })
+          .in("id", ids);
+        if (deactivateError) throw deactivateError;
+      }
+
+      const { error: sessionsError } = await db.from("voter_sessions").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+      if (sessionsError) throw sessionsError;
+
+      return NextResponse.json({ ok: true, deleted: 0, deactivated: ids.length });
+    }
+
+    if (selectedIds.length === 0) {
+      return NextResponse.json({ error: "Select at least one voter code." }, { status: 400 });
+    }
 
     const { data: votedRows, error: votedError } = await db.from("votes").select("voter_id");
     if (votedError) throw votedError;
-    const votedIds = [...new Set((votedRows ?? []).map((row) => row.voter_id))];
+    const votedIds = new Set((votedRows ?? []).map((row) => row.voter_id));
 
-    const { data: allCodes, error: codesError } = await db.from("voter_codes").select("id");
-    if (codesError) throw codesError;
+    const usedIds = selectedIds.filter((id: string) => votedIds.has(id));
+    const unusedIds = selectedIds.filter((id: string) => !votedIds.has(id));
 
-    const unusedIds = (allCodes ?? []).map((row) => row.id).filter((id) => !votedIds.includes(id));
-
+    // Unused keys can be removed completely. Used keys are deactivated so vote data and names remain available.
     if (unusedIds.length > 0) {
       const { error: deleteError } = await db.from("voter_codes").delete().in("id", unusedIds);
       if (deleteError) throw deleteError;
     }
 
-    if (votedIds.length > 0) {
+    if (usedIds.length > 0) {
       const { error: deactivateError } = await db
         .from("voter_codes")
         .update({ is_active: false, updated_at: now })
-        .in("id", votedIds);
+        .in("id", usedIds);
       if (deactivateError) throw deactivateError;
     }
 
-    return NextResponse.json({ ok: true, deleted: unusedIds.length, deactivated: votedIds.length });
+    const { error: sessionsError } = await db.from("voter_sessions").delete().in("voter_code_id", selectedIds);
+    if (sessionsError) throw sessionsError;
+
+    return NextResponse.json({ ok: true, deleted: unusedIds.length, deactivated: usedIds.length });
   } catch (error) {
-    console.error("Voter code destruction failed", error);
-    return NextResponse.json({ error: "Unable to destroy voter codes." }, { status: 500 });
+    console.error("Voter code deletion failed", error);
+    return NextResponse.json({ error: "Unable to delete voter codes." }, { status: 500 });
   }
 }

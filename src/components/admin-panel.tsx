@@ -18,10 +18,11 @@ export function AdminPanel({ categories, projects, isOpen, totalVotes }: { categ
   const [codeCount, setCodeCount] = useState(10);
   const [generatedCodes, setGeneratedCodes] = useState<string[]>([]);
   const [loadingCodes, setLoadingCodes] = useState(true);
+  const [selectedCodeIds, setSelectedCodeIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     let active = true;
-    fetch("/api/admin/voter-codes")
+    fetch("/api/admin/voter-codes", { credentials: "include" })
       .then((response) => response.json())
       .then((data: { codes?: VoterCode[] }) => { if (active) setVoterCodes(data.codes ?? []); })
       .catch(() => { if (active) setVoterCodes([]); })
@@ -32,7 +33,7 @@ export function AdminPanel({ categories, projects, isOpen, totalVotes }: { categ
   async function update(url: string, method: string, body: FormData | unknown) {
     setSaving(true); setMessage("");
     try {
-      const response = await fetch(url, body instanceof FormData ? { method, body } : { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+      const response = await fetch(url, body instanceof FormData ? { method, body, credentials: "include" } : { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body), credentials: "include" });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "Unable to save changes.");
       setMessage("Saved successfully.");
@@ -66,7 +67,7 @@ export function AdminPanel({ categories, projects, isOpen, totalVotes }: { categ
     event.preventDefault();
     setSaving(true); setMessage(""); setGeneratedCodes([]);
     try {
-      const response = await fetch("/api/admin/voter-codes", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ count: codeCount }) });
+      const response = await fetch("/api/admin/voter-codes", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ count: codeCount }), credentials: "include" });
       const data = (await response.json()) as { codes?: string[]; count?: number; error?: string };
       if (!response.ok) throw new Error(data.error ?? "Unable to generate voter codes.");
       setGeneratedCodes(data.codes ?? []);
@@ -81,16 +82,54 @@ export function AdminPanel({ categories, projects, isOpen, totalVotes }: { categ
 
   async function destroyAllVoterCodes() {
     if (!window.confirm("Destroy all voter access codes? This cannot be undone.")) return;
-    setSaving(true); setMessage("");
-    try {
-      const response = await fetch("/api/admin/voter-codes", { method: "DELETE" });
-      const data = (await response.json()) as { error?: string; deleted?: number; deactivated?: number };
-      if (!response.ok) throw new Error(data.error ?? "Unable to destroy voter codes.");
-      setVoterCodes([]); setGeneratedCodes([]);
-      setMessage(`Destroyed all voter access codes (${data.deleted ?? 0} deleted, ${data.deactivated ?? 0} deactivated).`);
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to destroy voter codes.");
-    } finally { setSaving(false); }
+    const result = await update("/api/admin/voter-codes", "DELETE", {});
+    if (result) {
+      const listResponse = await fetch("/api/admin/voter-codes", { credentials: "include" });
+      const listData = (await listResponse.json()) as { codes?: VoterCode[] };
+      setVoterCodes(listData.codes ?? []);
+      setGeneratedCodes([]);
+      setSelectedCodeIds(new Set());
+      setMessage(`Deactivated all voter access codes (${result.deactivated ?? 0} total).`);
+    }
+  }
+
+  function toggleCodeSelection(id: string) {
+    setSelectedCodeIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAllCodeSelection() {
+    if (selectedCodeIds.size === voterCodes.length) setSelectedCodeIds(new Set());
+    else setSelectedCodeIds(new Set(voterCodes.map((code) => code.id)));
+  }
+
+  async function updateSelectedCodeStatus(isActive: boolean) {
+    if (!selectedCodeIds.size) return;
+    const result = await update("/api/admin/voter-codes", "PATCH", { ids: [...selectedCodeIds], isActive });
+    if (result) {
+      const listResponse = await fetch("/api/admin/voter-codes", { credentials: "include" });
+      const listData = (await listResponse.json()) as { codes?: VoterCode[] };
+      setVoterCodes(listData.codes ?? []);
+      setSelectedCodeIds(new Set());
+      setMessage(`${isActive ? "Activated" : "Deactivated"} ${result.updated ?? selectedCodeIds.size} voter access codes.`);
+    }
+  }
+
+  async function deleteSelectedCodes() {
+    if (!selectedCodeIds.size) return;
+    if (!window.confirm("Delete selected voter access codes? Unused codes will be removed and used codes will be deactivated to preserve vote data.")) return;
+    const result = await update("/api/admin/voter-codes", "DELETE", { ids: [...selectedCodeIds] });
+    if (result) {
+      const listResponse = await fetch("/api/admin/voter-codes", { credentials: "include" });
+      const listData = (await listResponse.json()) as { codes?: VoterCode[] };
+      setVoterCodes(listData.codes ?? []);
+      setSelectedCodeIds(new Set());
+      setGeneratedCodes([]);
+      setMessage(`Deleted ${result.deleted ?? 0} unused code(s) and deactivated ${result.deactivated ?? 0} used code(s).`);
+    }
   }
 
   function copyGeneratedCodes() {
@@ -168,7 +207,7 @@ export function AdminPanel({ categories, projects, isOpen, totalVotes }: { categ
     <section className="admin-stats"><div className="stat-card"><strong>{totalVotes}</strong><span>Total votes received</span></div><div className="stat-card"><strong>{projects.length}</strong><span>Projects</span></div><div className="stat-card"><strong>{categories.length}</strong><span>Categories</span></div></section>
     <section className="admin-section"><p className="eyebrow">Project management</p><h2>Add a project</h2><form className="admin-form" onSubmit={addProject}><label>Project name<input name="name" required maxLength={120} /></label><label>School name<input name="schoolName" required maxLength={200} /></label><label>Students name<input name="studentName" required maxLength={200} /></label><label>Category<select name="categoryId" required defaultValue={categories[0]?.id}>{categories.map((category) => <option value={category.id} key={category.id}>{category.name}</option>)}</select></label><label>Project image <span className="muted">(optional, PNG/JPEG/WebP; max 5 MB)</span><input name="image" type="file" accept="image/png,image/jpeg,image/webp" /></label><label>Description<textarea name="description" rows={4} required maxLength={2000} /></label><button className="button button-primary" disabled={saving}>{saving ? "Saving…" : "Add project"}</button></form></section>
     <section className="admin-section"><p className="eyebrow">Category management</p><h2>Categories</h2><form className="admin-form" onSubmit={addCategory}><label>Category name<input name="name" required maxLength={120} /></label><button className="button button-primary" disabled={saving}>{saving ? "Saving…" : "Add category"}</button></form><div className="admin-projects">{categories.map((category) => <article className="admin-project" key={category.id}><div><h3>{category.name}</h3><button className="button button-secondary" type="button" disabled={saving} onClick={() => rename("categories", category.id, category.name)}>Rename</button><button className="button button-secondary" type="button" disabled={saving} onClick={() => remove("categories", category.id, category.name)}>Delete</button></div></article>)}</div></section>
-    <section className="admin-section"><p className="eyebrow">Voter access codes</p><h2>Generate 4-digit keys</h2><p className="muted">Generate random 4-digit codes that visitors enter to open the app and vote. Save the generated codes before leaving this page.</p><form className="admin-form" onSubmit={generateVoterCodes}><label>How many keys to generate<input type="number" min="1" max="10000" required value={codeCount} onChange={(event) => setCodeCount(Number(event.target.value))} /></label><button className="button button-primary" disabled={saving}>{saving ? "Working…" : "Generate keys"}</button></form>{generatedCodes.length > 0 && <div className="vote-records"><p><strong>Generated keys</strong></p><textarea readOnly rows={Math.min(12, Math.max(4, generatedCodes.length))} value={generatedCodes.join("\n")} /><div><button className="button button-secondary" type="button" onClick={copyGeneratedCodes}>Copy all</button><button className="button button-secondary" type="button" onClick={downloadGeneratedCodes}>Download CSV</button></div></div>}{loadingCodes ? <p className="muted">Loading stored keys…</p> : <div className="admin-projects"><p>{voterCodes.length} stored keys ({voterCodes.filter((code) => code.is_active).length} active)</p><button className="button button-secondary" type="button" disabled={saving || !voterCodes.length} onClick={destroyAllVoterCodes}>Destroy all keys</button>{voterCodes.length > 0 && <details><summary>Show stored keys</summary><ul>{voterCodes.map((code) => <li key={code.id}>{code.code}{code.display_name ? ` - ${code.display_name}` : ""}{code.is_active ? "" : " (inactive)"}</li>)}</ul></details>}</div>}</section>
+    <section className="admin-section"><p className="eyebrow">Voter access codes</p><h2>Generate 4-digit keys</h2><p className="muted">Generate random 4-digit codes that visitors enter to open the app and vote. Save the generated codes before leaving this page.</p><form className="admin-form" onSubmit={generateVoterCodes}><label>How many keys to generate<input type="number" min="1" max="10000" required value={codeCount} onChange={(event) => setCodeCount(Number(event.target.value))} /></label><button className="button button-primary" disabled={saving}>{saving ? "Working…" : "Generate keys"}</button></form>{generatedCodes.length > 0 && <div className="vote-records"><p><strong>Generated keys</strong></p><textarea readOnly rows={Math.min(12, Math.max(4, generatedCodes.length))} value={generatedCodes.join("\n")} /><div><button className="button button-secondary" type="button" onClick={copyGeneratedCodes}>Copy all</button><button className="button button-secondary" type="button" onClick={downloadGeneratedCodes}>Download CSV</button></div></div>}{loadingCodes ? <p className="muted">Loading stored keys…</p> : <div className="admin-projects"><p>{voterCodes.length} stored keys ({voterCodes.filter((code) => code.is_active).length} active)</p><div><button className="button button-secondary" type="button" disabled={saving || !voterCodes.length} onClick={destroyAllVoterCodes}>Deactivate all keys</button><button className="button button-secondary" type="button" disabled={saving || !selectedCodeIds.size} onClick={() => updateSelectedCodeStatus(true)}>Activate selected</button><button className="button button-secondary" type="button" disabled={saving || !selectedCodeIds.size} onClick={() => updateSelectedCodeStatus(false)}>Deactivate selected</button><button className="button button-secondary" type="button" disabled={saving || !selectedCodeIds.size} onClick={deleteSelectedCodes}>Delete selected</button></div>{voterCodes.length > 0 && <div className="vote-records"><label><input type="checkbox" checked={selectedCodeIds.size === voterCodes.length && voterCodes.length > 0} onChange={toggleAllCodeSelection} /> Select all</label><ul>{voterCodes.map((code) => <li key={code.id}><label><input type="checkbox" checked={selectedCodeIds.has(code.id)} onChange={() => toggleCodeSelection(code.id)} /> {code.code}{code.display_name ? ` - ${code.display_name}` : ""}{code.is_active ? "" : " (inactive)"}</label></li>)}</ul></div>}</div>}</section>
     <section className="admin-section"><p className="eyebrow">Category results</p><h2>Votes and marks by category</h2><p className="muted">Each project is scored against the total votes received by all projects in its category.</p><div className="category-results">{categories.map((category) => { const categoryProjects = projects.filter((project) => project.category_id === category.id); const categoryTotal = categoryProjects.reduce((total, project) => total + project.vote_count, 0); return <article className="category-result" key={category.id}><div className="vote-records-header"><h3>{category.name}</h3><button className="button button-secondary" type="button" disabled={!categoryProjects.length} onClick={() => exportCategory(category)}>Export CSV</button></div>{categoryProjects.length ? <div className="vote-table-wrap"><table className="vote-table"><thead><tr><th>Project</th><th>School</th><th>Students</th><th>Votes received</th><th>Marks / 10</th></tr></thead><tbody>{categoryProjects.map((project) => <tr key={project.id}><td>{project.name}</td><td>{project.school_name}</td><td>{project.student_name}</td><td>{project.vote_count} / {categoryTotal}</td><td>{(categoryTotal ? (project.vote_count / categoryTotal) * 10 : 0).toFixed(2)}</td></tr>)}</tbody></table></div> : <p className="muted">No projects in this category.</p>}</article>; })}</div></section>
     <section className="admin-section"><p className="eyebrow">Results overview</p><h2>Project vote totals</h2><p className="muted">Click a project to view its vote records and export them as a CSV file compatible with Excel.</p><div className="admin-projects">{projects.map((project) => <article className="admin-project" key={project.id}>{project.image_url && <img src={project.image_url} alt="" />}<div><button className="project-title-button" type="button" onClick={() => showProjectVotes(project.id)}><h3>{project.name}</h3></button><p><strong>School:</strong> {project.school_name}</p><p><strong>Students:</strong> {project.student_name}</p><p>{project.description}</p><strong>{project.vote_count} votes</strong><div><button className="button button-secondary" type="button" disabled={saving} onClick={() => rename("projects", project.id, project.name)}>Rename</button><button className="button button-secondary" type="button" disabled={saving} onClick={() => remove("projects", project.id, project.name)}>Delete</button></div>{selectedProject === project.id && <div className="vote-records"><div className="vote-records-header"><h4>Vote records</h4><button className="button button-secondary" type="button" disabled={loadingVotes || !projectVotes.length} onClick={() => exportProjectVotes(project)}>Export CSV</button></div>{loadingVotes ? <p className="muted">Loading vote records…</p> : projectVotes.length ? <div className="vote-table-wrap"><table className="vote-table"><thead><tr><th>Voter name</th><th>Remaining votes</th><th>Voted at</th></tr></thead><tbody>{projectVotes.map((vote) => <tr key={vote.id}><td>{vote.voter_name}</td><td>{vote.remaining_votes}</td><td>{new Date(vote.created_at).toLocaleString()}</td></tr>)}</tbody></table></div> : <p className="muted">No votes recorded for this project.</p>}</div>}</div></article>)}</div></section>
     {message && <p className="admin-message" role="status">{message}</p>}
